@@ -39,7 +39,7 @@
     "start": "./bin/cli.js",
     "lint": "eslint .",
     "mocha": "mocha test/integration --parallel",
-    "test": "c8 npm run mocha"
+    "test": "npm run gzip && c8 npm run mocha"
   },
   "dependencies": {
     "colors": "1.4.0",
