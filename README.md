@@ -1,4 +1,4 @@
-# node-static
+# @node-static/node-static
 
 [![Node.js CI status](http://github.com/node-static/node-static/workflows/Node.js%20CI/badge.svg)](https://github.com/node-static/node-static/actions)
 
