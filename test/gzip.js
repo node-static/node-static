@@ -23,8 +23,9 @@ await Promise.all([
 
 // Add delay to ensure source file is newer
 await setTimeout(100);
-writeFile(
+await writeFile(
     import.meta.dirname + '/fixtures/hello-with-older-gz.txt',
     'hello world',
     'utf8'
 );
+console.log('Finished!');
