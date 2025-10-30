@@ -1,4 +1,4 @@
-# CHANGES for `node-static`
+# CHANGES for `@node-static/node-static`
 
 ## 0.8.0 (UNRELEASED)
 

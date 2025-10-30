@@ -1,17 +1,17 @@
 # node-static
 
-[![Node.js CI status](https://github.com/http://github.com/cloudhead/node-static/workflows/Node.js%20CI/badge.svg)](https://github.com/http://github.com/cloudhead/node-static/actions)
+[![Node.js CI status](http://github.com/node-static/node-static/workflows/Node.js%20CI/badge.svg)](https://github.com/node-static/node-static/actions)
 
 > a simple, *rfc 2616 compliant* file streaming module for [node](http://nodejs.org)
 
-node-static understands and supports *conditional GET* and *HEAD* requests.
-node-static was inspired by some of the other static-file serving modules out
+@node-static/node-static understands and supports *conditional GET* and *HEAD* requests.
+@node-static/node-static is a maintained fork of node-static which was inspired by some of the other static-file serving modules out
 there, such as node-paperboy and antinode.
 
 ## Installation
 
 ```sh
-$ npm install node-static
+$ npm install @node-static/node-static
 ```
 
 ## Set-up
@@ -19,16 +19,16 @@ $ npm install node-static
 ### ESM
 
 ```js
-import {Server, version, mime} from 'node-static';
+import {Server, version, mime} from '@node-static/node-static';
 
 // OR:
-// import * as statik from 'node-static';
+// import * as statik from '@node-static/node-static';
 ```
 
 ### CommonJS
 
 ```js
-const statik = require('node-static');
+const statik = require('@node-static/node-static');
 ```
 
 ## Usage
@@ -37,7 +37,7 @@ const statik = require('node-static');
 import http from 'node:http';
 
 //
-// Create a node-static server instance to serve the './public' folder
+// Create a @node-static/node-static server instance to serve the './public' folder
 //
 const file = new statik.Server('./public');
 
@@ -69,7 +69,7 @@ new statik.Server('./public');
 ```
 
 You can also specify how long the client is supposed to cache the files
-node-static serves:
+@node-static/node-static serves:
 
 ```js
 new statik.Server('./public', { cache: 3600 });
@@ -85,7 +85,7 @@ instance, passing it the HTTP request and response object:
 
 ```js
 import http from 'node:http';
-import * as statik from 'node-static';
+import * as statik from '@node-static/node-static';
 
 const fileServer = new statik.Server('./public');
 
@@ -175,7 +175,7 @@ file:
 
 ```js
 import http from 'node:http';
-import * as statik from 'node-static';
+import * as statik from '@node-static/node-static';
 
 const fileServer = new statik.Server('./public');
 
@@ -197,7 +197,8 @@ http.createServer(function (request, response) {
 ```
 
 Note that if you pass a callback, and there is an error serving the file,
-node-static *will not* respond to the client. This gives you the opportunity
+@node-static/node-static *will not* respond to the client. This gives you
+the opportunity
 to re-route the request, or handle it differently.
 
 For example, you may want to interpret a request as a static request, but if
@@ -316,13 +317,13 @@ fileServer.on('warn', (msg) => {
 
 ## Command Line Interface
 
-`node-static` also provides a CLI.
+`@node-static/node-static` also provides a CLI.
 
 ```text
 --port, -p          TCP port at which the files will be served                        [default: 8080]
 --host-address, -a  the local network interface at which to listen                    [default: "127.0.0.1"]
 --cache, -c         "Cache-Control" header setting, defaults to 3600
---version, -v       node-static version
+--version, -v       @node-static/node-static version
 --headers, -H       additional headers (in JSON format)
 --header-file, -f   JSON file of additional headers
 --gzip, -z          enable compression (tries to serve file of same name plus '.gz')

@@ -1,11 +1,16 @@
 'use strict';
 
-var fs = require('fs');
-var events = require('events');
-var http = require('http');
-var path = require('path');
+var fs$1 = require('node:fs');
+var events = require('node:events');
+var http = require('node:http');
+var path$1 = require('node:path');
+var isHiddenFile = require('is-hidden-file');
 var mime = require('mime');
 var minimatch = require('minimatch');
+var fs = require('fs');
+var path = require('path');
+var node_zlib = require('node:zlib');
+var promises = require('node:stream/promises');
 
 var _documentCurrentScript = typeof document !== 'undefined' ? document.currentScript : null;
 /**
@@ -54,9 +59,20 @@ function mstat (dir, files, callback) {
 }
 
 /**
+ * @param {string} input
+ * @param {string} output
+ */
+async function gzip (input, output) {
+    const gzip = node_zlib.createGzip();
+    const source = fs$1.createReadStream(input);
+    const destination = fs$1.createWriteStream(output);
+    return await promises.pipeline(source, gzip, destination);
+}
+
+/**
  * @typedef {{
  *   status: number,
- *   headers: Record<string, string>,
+ *   headers: http.OutgoingHttpHeaders,
  *   message?: string
  * }} ResultInfo
  */
@@ -64,14 +80,14 @@ function mstat (dir, files, callback) {
 /**
  * @typedef {(
  *   status: number,
- *   headers: Record<string, string>,
+ *   headers: http.OutgoingHttpHeaders,
  *   streaming?: boolean
  * ) => void} Finish
  */
 
 const pkg = JSON.parse(
     // @ts-expect-error Works fine
-    fs.readFileSync(
+    fs$1.readFileSync(
         new URL('../package.json', (typeof document === 'undefined' ? require('u' + 'rl').pathToFileURL(__filename).href : (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('node-static.cjs', document.baseURI).href)))
     )
 );
@@ -84,53 +100,84 @@ const version = pkg.version.split('.');
  */
 function tryStat(p, callback) {
     try {
-        fs.stat(p, callback);
+        fs$1.stat(p, callback);
     } catch (e) {
         callback(/** @type {NodeJS.ErrnoException} */ (e));
     }
 }
 
 /**
+ * @typedef {(
+ *     file: string,
+ *     pathname: string|null,
+ *     req: http.IncomingMessage,
+ *     res: http.ServerResponse
+ *   ) => import('node:stream').Transform} TransformCallback
+ */
+
+/**
  * @typedef {{
  *   indexFile?: string,
+ *   directoryCallback?: (
+ *     pathname: string,
+ *     req: http.IncomingMessage,
+ *     res: http.ServerResponse<http.IncomingMessage> & {
+ *       req: http.IncomingMessage;
+ *     }
+ *   ) => void,
  *   gzip?: boolean|RegExp,
- *   headers?: Record<string, string>
+ *   gzipOnly?: "allow"|"require",
+ *   gzipAuto?: boolean,
+ *   headers?: http.OutgoingHttpHeaders,
  *   serverInfo?: string|null,
- *   cache?: boolean|number|Record<string, number>,
- *   defaultExtension?: string
+ *   cache?: null|boolean|number|Record<string, number>,
+ *   serveHidden?: boolean,
+ *   defaultExtension?: string,
+ *   transform?: TransformCallback
  * }} ServerOptions
  */
 
-class Server {
+class Server extends events.EventEmitter {
     /**
      * @param {string|ServerOptions|null} [root]
      * @param {ServerOptions} [options]
      */
     constructor (root, options) {
+        super();
         if (root && typeof root === 'object') { options = root; root = null; }
 
         // resolve() doesn't normalize (to lowercase) drive letters on Windows
-        this.root    = path.normalize(path.resolve(root || '.'));
+        this.root    = path$1.normalize(path$1.resolve(root || '.'));
         /** @type {Required<Pick<ServerOptions, 'indexFile'>> & ServerOptions} */
         this.options = {
             indexFile: 'index.html',
             ...(options || {}),
         };
 
+        if (this.options.gzipOnly && this.options.gzipAuto) {
+            throw new Error(
+                '`gzipOnly` and `gzipAuto` may not be used togther.'
+            );
+        }
+
         /** @type {Record<string, number>} */
         this.cache   = {'**': 3600};
 
-        /** @type {Record<string, string>} */
+        /** @type {http.OutgoingHttpHeaders} */
         this.defaultHeaders  = {};
         this.options.headers = this.options.headers || {};
 
         if ('cache' in this.options) {
             if (typeof(this.options.cache) === 'number') {
                 this.cache = {'**': this.options.cache};
+            } else if (this.options.cache === null) {
+                this.cache = {};
             } else if (typeof(this.options.cache) === 'object') {
                 this.cache = this.options.cache;
             } else if (!this.options.cache) {
-                this.cache = {};
+                this.cache = {
+                    '**': 0
+                };
             }
         }
 
@@ -162,29 +209,40 @@ class Server {
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
      * }} res
-     * @param {(status: number, headers: Record<string, string>) => void} finish
+     * @param {(status: number, headers: http.OutgoingHttpHeaders) => void} finish
      */
     serveDir (pathname, req, res, finish) {
-        const htmlIndex = path.join(pathname, this.options.indexFile);
+        if (this.options.directoryCallback) {
+            this.options.directoryCallback(pathname, req, res);
+            return;
+        }
+
+        const htmlIndex = path$1.join(pathname, this.options.indexFile);
 
         tryStat(htmlIndex, (e, stat) => {
             if (!e && stat) {
                 const status = 200;
-                /** @type {Record<string, string>} */
-                const headers = {};
+                /** @type {http.OutgoingHttpHeaders} */
+                const headers = res.getHeaders();
                 const originalPathname = decodeURIComponent(new URL(
                     /* c8 ignore next -- TS */
                     req.url ?? '',
                     'http://localhost'
                 ).pathname);
-                if (originalPathname.length && originalPathname.charAt(originalPathname.length - 1) !== '/') {
-                    return finish(301, { Location: originalPathname + '/' });
+                if (originalPathname.length && originalPathname.at(-1) !== '/') {
+                    const url = new URL(
+                        /* c8 ignore next -- TS */
+                        req.url ?? '',
+                        'http://localhost'
+                    );
+                    url.pathname += '/';
+                    return finish(301, { Location: url.pathname + url.search });
                 } else {
                     this.respond(null, status, headers, [htmlIndex], stat, req, res, finish);
                 }
             } else {
                 // Stream a directory of files as a single file.
-                fs.readFile(path.join(pathname, 'index.json'), function (e, contents) {
+                fs$1.readFile(path$1.join(pathname, 'index.json'), function (e, contents) {
                     if (e) { return finish(404, {}) }
                     const index = JSON.parse(contents.toString());
                     streamFiles(index.files);
@@ -198,7 +256,7 @@ class Server {
         const streamFiles = (files) => {
             mstat(pathname, files, (e, stat) => {
                 if (e || !stat) { return finish(404, {}) }
-                this.respond(pathname, 200, {}, files, stat, req, res, finish);
+                this.respond(pathname, 200, res.getHeaders(), files, stat, req, res, finish);
             });
         };
     }
@@ -206,7 +264,7 @@ class Server {
     /**
      * @param {string} pathname
      * @param {number} status
-     * @param {Record<string, string>} headers
+     * @param {http.OutgoingHttpHeaders} headers
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -230,7 +288,7 @@ class Server {
 
     /**
      * @param {number} status
-     * @param {Record<string, string>} headers
+     * @param {http.OutgoingHttpHeaders} headers
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -277,7 +335,7 @@ class Server {
     /**
      * @param {string} pathname
      * @param {number} status
-     * @param {Record<string, string>} headers
+     * @param {http.OutgoingHttpHeaders} headers
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -286,13 +344,16 @@ class Server {
      */
     servePath (pathname, status, headers, req, res, finish) {
         const promise = new(events.EventEmitter);
-
         pathname = this.resolve(pathname);
 
         // Make sure we're not trying to access a
         // file outside of the root.
         if (pathname.startsWith(this.root)) {
-            tryStat(pathname, (e, stat) => {
+            /**
+             * @param {NodeJS.ErrnoException | null} e
+             * @param {fs.Stats} [stat]
+             */
+            const tryPath = (e, stat) => {
                 if (e || !stat) {
                     // possibly not found, check default extension
                     if (this.defaultExtension) {
@@ -307,18 +368,36 @@ class Server {
                                 finish(400, {});
                             }
                         });
+                    } else if (this.options.gzipOnly === 'require') {
+                        tryStat(pathname + '.gz', tryPath);
                     } else {
                         finish(404, {});
                     }
-                } else if (stat.isFile()) {      // Stream a single file.
-                    this.respond(null, status, headers, [pathname], stat, req, res, finish);
+                } else if (this.options.serveHidden !== true && isHiddenFile.isHiddenFile(pathname)) {
+                    finish(404, {});
+                } else if (stat.isFile()) {
+                    if (this.options.gzipOnly) {
+                        this.respond(null, status, headers, [
+                            pathname.replace(/\.gz$/, '')
+                        ], stat, req, res, finish);
+                    } else {
+                        // Stream a single file.
+                        this.respond(null, status, headers, [pathname], stat, req, res, finish);
+                    }
                 } else if (stat.isDirectory()) { // Stream a directory of files.
                     this.serveDir(pathname, req, res, finish);
-                /* c8 ignore next 3 -- Symblink didn't trigger */
+                /* c8 ignore next 3 -- Symlink didn't trigger */
                 } else {
                     finish(400, {});
                 }
-            });
+            };
+
+            if (this.options.gzipOnly === 'allow') {
+                tryStat(pathname + '.gz', tryPath);
+            } else {
+                tryStat(pathname, tryPath);
+            }
+
         /* c8 ignore next 4 -- Not possible? */
         } else {
             // Forbidden
@@ -331,7 +410,7 @@ class Server {
      * @param {string} pathname
      */
     resolve (pathname) {
-        return path.resolve(path.join(this.root, pathname));
+        return path$1.resolve(path$1.join(this.root, pathname));
     }
 
     /**
@@ -347,7 +426,7 @@ class Server {
 
         /**
          * @param {number} status
-         * @param {Record<string, string>} headers
+         * @param {http.OutgoingHttpHeaders} headers
          * @param {boolean} [streaming]
          */
         const finish = (status, headers, streaming) => {
@@ -370,7 +449,7 @@ class Server {
         }
 
         process.nextTick(() => {
-            this.servePath(pathname, 200, {}, req, res, finish).on('success', function (result) {
+            this.servePath(pathname, 200, res.getHeaders(), req, res, finish).on('success', function (result) {
                 /* c8 ignore next -- How to cover? */
                 promise.emit('success', result);
             }).on('error', function (err) {
@@ -406,9 +485,9 @@ class Server {
      * @param {string|null} pathname
      * @param {number} status
      * @param {string} contentType
-     * @param {Record<string, string>} _headers
+     * @param {http.OutgoingHttpHeaders} _headers
      * @param {string[]} files
-     * @param {import('./node-static/util.js').StatInfo} stat
+     * @param {import('./node-static/mstat.js').StatInfo} stat
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -418,15 +497,64 @@ class Server {
     respondGzip (pathname, status, contentType, _headers, files, stat, req, res, finish) {
         if (files.length == 1 && this.gzipOk(req, contentType)) {
             const gzFile = files[0] + '.gz';
-            tryStat(gzFile, (e, gzStat) => {
-                if (!e && gzStat && gzStat.isFile()) {
-                    const vary = _headers['Vary'];
-                    _headers['Vary'] = (vary && vary != 'Accept-Encoding' ? vary + ', ' : '') + 'Accept-Encoding';
-                    _headers['Content-Encoding'] = 'gzip';
-                    stat.size = gzStat.size;
-                    files = [gzFile];
-                }
+            const respondNoGzip = () => {
                 this.respondNoGzip(pathname, status, contentType, _headers, files, stat, req, res, finish);
+            };
+            /* c8 ignore next -- How to simulate? */
+            const badRequest = () => {
+                /* c8 ignore next -- How to simulate? */
+                finish(500, {});
+            };
+            const autoGzip = () => {
+                gzip(files[0], gzFile).then(() => {
+                    tryStat(gzFile, (e, gzStat) => {
+                        if (!e && gzStat) {
+                            setGzipHeaders(gzStat);
+                            respondNoGzip();
+                        /* c8 ignore next 3 -- How to simulate? */
+                        } else {
+                            badRequest();
+                        }
+                    });
+                /* c8 ignore next 3 -- How to simulate? */
+                }).catch(() => {
+                    badRequest();
+                });
+            };
+
+            /**
+             * @param {fs.Stats} gzStat
+             */
+            const setGzipHeaders = (gzStat) => {
+                const vary = _headers['Vary'];
+                _headers['Vary'] = (vary && vary != 'Accept-Encoding' ? vary + ', ' : '') + 'Accept-Encoding';
+                _headers['Content-Encoding'] = 'gzip';
+                stat.size = gzStat.size;
+                files = [gzFile];
+            };
+            tryStat(gzFile, (e, gzStat) => {
+                if (this.options.gzipAuto || (!e && gzStat && gzStat.isFile())) {
+                    if (gzStat && stat.mtime > gzStat.mtime) {
+                        if (this.options.gzipAuto) {
+                            autoGzip();
+                            return;
+                        }
+                        this.emit(
+                            'warn',
+                            'Gzipped version is older than source file',
+                            files[0],
+                            stat.mtime,
+                            gzStat.mtime
+                        );
+                    } else {
+                        if (!gzStat) {
+                            autoGzip();
+                            return;
+                        }
+                        setGzipHeaders(gzStat);
+                    }
+                }
+                respondNoGzip();
             });
         } else {
             // Client doesn't want gzip or we're sending multiple files
@@ -436,7 +564,7 @@ class Server {
 
     /**
      * @param {http.IncomingMessage} req
-     * @param {import('./node-static/util.js').StatInfo} stat
+     * @param {import('./node-static/mstat.js').StatInfo} stat
      */
     parseByteRange (req, stat) {
         const byteRange = {
@@ -467,10 +595,10 @@ class Server {
                 if (!isNaN(byteRange.from) && !isNaN(byteRange.to) && 0 <= byteRange.from && byteRange.from <= byteRange.to) {
                     byteRange.valid = true;
                 } else {
-                    console.warn('Request contains invalid range header: ', rangeHeaderArr);
+                    this.emit('warn', 'Request contains invalid range header: ' + rangeHeaderArr.join(', '));
                 }
             } else {
-                console.warn('Request contains unsupported range header: ', rangeHeader);
+                this.emit('warn', 'Request contains unsupported range header: ' + rangeHeader);
             }
         }
         return byteRange;
@@ -480,9 +608,9 @@ class Server {
      * @param {string|null} pathname
      * @param {number} status
      * @param {string} contentType
-     * @param {Record<string, string>} _headers
+     * @param {http.OutgoingHttpHeaders} _headers
      * @param {string[]} files
-     * @param {import('./node-static/util.js').StatInfo} stat
+     * @param {import('./node-static/mstat.js').StatInfo} stat
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -492,7 +620,7 @@ class Server {
     respondNoGzip (pathname, status, contentType, _headers, files, stat, req, res, finish) {
         const mtime           = Date.parse(stat.mtime.toString()),
             key             = pathname || files[0],
-            headers         = /** @type {Record<string, string>} */ ({}),
+            headers         = /** @type {http.OutgoingHttpHeaders} */ ({}),
             clientETag      = req.headers['if-none-match'],
             clientMTime     = Date.parse(req.headers['if-modified-since'] ?? ''),
             byteRange       = this.parseByteRange(req, stat);
@@ -513,13 +641,13 @@ class Server {
 
             } else {
                 byteRange.valid = false;
-                console.warn('Range request exceeds file boundaries, goes until byte no', byteRange.to, 'against file size of', length, 'bytes');
+                this.emit('warn', 'Range request exceeds file boundaries, goes until byte no ' + byteRange.to + ' against file size of ' + length + ' bytes');
             }
         }
 
         /* In any case, check for unhandled byte range headers */
         if (!byteRange.valid && req.headers['range']) {
-            console.error(new Error('Range request present but invalid, might serve whole file instead'));
+            this.emit('warn', 'Range request present but invalid, might serve whole file instead');
         }
 
         // Copy default headers
@@ -529,7 +657,16 @@ class Server {
         headers['Date']          = new(Date)().toUTCString();
         headers['Last-Modified'] = new(Date)(stat.mtime).toUTCString();
         headers['Content-Type']   = contentType;
-        headers['Content-Length'] = String(length);
+        // If a transform is configured, the output length may differ from the
+        //   original file length, so omit `Content-Length` to allow chunked
+        //   transfer.
+        if (this.options.transform) {
+            delete headers['Content-Length'];
+            // Node adds implicitly
+            // headers['Transfer-Encoding'] = 'chunked';
+        } else {
+            headers['Content-Length'] = String(length);
+        }
 
         // Copy custom headers
         for (const k in _headers) { headers[k] = _headers[k]; }
@@ -554,11 +691,42 @@ class Server {
             });
             finish(304, headers);
         } else {
+            // Only apply transforms for text-like content types
+            const isTextLike = typeof contentType === 'string' &&
+                (contentType.startsWith('text/') ||
+                contentType === 'application/json' ||
+                contentType.endsWith('+json') ||
+                contentType.endsWith('+xml') ||
+                contentType.startsWith('application/javascript'));
+
+            // If a custom factory is used, try calling it synchronously for the
+            // first file to detect immediate exceptions before sending headers.
+            if (isTextLike &&
+                typeof this.options.transform === 'function' && files.length > 0
+            ) {
+                try {
+                    // call with the first file to detect sync errors; result is
+                    // discarded here — stream will call factory again.
+                    this.options.transform(files[0], pathname, req, res);
+                } catch {
+                    return finish(500, {}, true);
+                }
+            }
+
             res.writeHead(status, headers);
 
-            this.stream(key, files, length, startByte, res, function (e) {
-                /* c8 ignore next -- Internal uses already checked for bad paths */
-                if (e) { return finish(500, {}, true) }
+            this.stream(key, files, length, startByte, res, req, isTextLike, function (e) {
+                if (e) {
+                    // If headers were already sent, avoid attempting to write
+                    // a new status header. Just end the response.
+                    if (res.headersSent) {
+                        try { res.end(); } catch {
+                            // Ignore
+                        }
+                        return;
+                    }
+                    return finish(500, {}, true);
+                }
                 finish(status, headers, true);
             });
         }
@@ -567,9 +735,9 @@ class Server {
     /**
      * @param {string|null} pathname
      * @param {number} status
-     * @param {Record<string, string>} _headers
+     * @param {http.OutgoingHttpHeaders} _headers
      * @param {string[]} files
-     * @param {import('./node-static/util.js').StatInfo} stat
+     * @param {import('./node-static/mstat.js').StatInfo} stat
      * @param {http.IncomingMessage} req
      * @param {http.ServerResponse<http.IncomingMessage> & {
      *   req: http.IncomingMessage;
@@ -583,57 +751,119 @@ class Server {
         _headers = this.setCacheHeaders(_headers, req);
 
         if(this.options.gzip) {
-            this.respondGzip(pathname, status, contentType, _headers, files, stat, req, res, finish);
+            this.respondGzip(pathname, status, /** @type {string} */ (contentType), _headers, files, stat, req, res, finish);
         } else {
-            this.respondNoGzip(pathname, status, contentType, _headers, files, stat, req, res, finish);
+            this.respondNoGzip(pathname, status, /** @type {string} */ (contentType), _headers, files, stat, req, res, finish);
         }
     }
 
     /**
-     * @param {string|undefined} pathname
-     * @param {string[]} files
-     * @param {number} length
-     * @param {number} startByte
-     * @param {http.ServerResponse<http.IncomingMessage> & {
-     *   req: http.IncomingMessage;
-     * }} res
-     * @param {(err: NodeJS.ErrnoException | null, offset?: number) => void} callback
+     * @typedef {(
+     *   err: NodeJS.ErrnoException | null,
+     *   offset?: number
+     * ) => void} StreamCallback
      */
-    stream (pathname, files, length, startByte, res, callback) {
 
-        (function streamFile(files, offset) {
+    /**
+    * @param {string|null} pathname
+    * @param {string[]} files
+    * @param {number} length
+    * @param {number} startByte
+    * @param {http.ServerResponse<http.IncomingMessage> & {
+    *   req: http.IncomingMessage;
+    * }} res
+    * @param {http.IncomingMessage|StreamCallback|undefined} req
+    * @param {boolean} [applyTransform]
+    * @param {StreamCallback} [callback]
+    */
+    stream (pathname, files, length, startByte, res, req, applyTransform, callback) {
+        // Support legacy signature:
+        //   stream(pathname, files, length, startByte, res, callback)
+        if (typeof req === 'function') {
+            callback = req;
+            req = undefined;
+            applyTransform = false;
+        }
+
+        const transformOption = this.options.transform;
+        let callbackCalled = false;
+
+        /**
+         * @param {string[]} files
+         * @param {number} offset
+         */
+        const streamFile = (files, offset) => {
             let file = files.shift();
 
             if (file) {
-                file = path.resolve(file) === path.normalize(file)  ? file : path.join(pathname || '.', file);
+                file = path$1.resolve(file) === path$1.normalize(file)  ? file : path$1.join(pathname || '.', file);
 
-                // Stream the file to the client
-                fs.createReadStream(file, {
+                // Create the read stream
+                const readStream = fs$1.createReadStream(file, {
                     flags: 'r',
                     mode: 0o666,
                     start: startByte,
                     end: startByte + (length ? length - 1 : 0)
-                }).on('data', function (chunk) {
-                    // Bounds check the incoming chunk and offset, as copying
-                    // a buffer from an invalid offset will throw an error and crash
+                });
+
+                // Track bytes for offset and handle read errors early so a destroy()
+                // during transform creation will be caught by this handler.
+                readStream.on('data', function (chunk) {
                     if (chunk.length && offset < length && offset >= 0) {
                         offset += chunk.length;
                     }
                 }).on('close', function () {
                     streamFile(files, offset);
                 }).on('error', function (err) {
-                    callback(err);
+                    if (typeof callback === 'function' && !callbackCalled) {
+                        callbackCalled = true;
+                        callback(err);
+                    }
                     console.error(err);
-                }).pipe(res, { end: false });
+                });
+
+                // Optionally create a transform stream (only if flagged and
+                //   configured)
+                let transformStream = null;
+                try {
+                    if (req && applyTransform &&
+                        typeof transformOption === 'function'
+                    ) {
+                        // allow custom factory (file, pathname, req, res)
+                        transformStream = transformOption(file, pathname, req, res);
+                    }
+                } catch (err) {
+                    // If transform creation fails, destroy the read stream (will trigger
+                    // the error handler above, which will call the callback). Do not
+                    // call the callback here to avoid double-calling it.
+                    readStream.destroy(/** @type {Error} */ (err));
+                    return;
+                }
+
+                if (transformStream) {
+                    readStream.pipe(transformStream).on('error', function (err) {
+                        if (typeof callback === 'function' && !callbackCalled) {
+                            callbackCalled = true;
+                            callback(err);
+                        }
+                        console.error(err);
+                    }).pipe(res, { end: false });
+                } else {
+                    readStream.pipe(res, { end: false });
+                }
             } else {
                 res.end();
-                callback(null, offset);
+                if (typeof callback === 'function' && !callbackCalled) {
+                    callbackCalled = true;
+                    callback(null, offset);
+                }
             }
-        })(files.slice(0), 0);
+        };
+        streamFile(files.slice(0), 0);
     }
 
     /**
-     * @param {Record<string, string>} _headers
+     * @param {http.OutgoingHttpHeaders} _headers
      * @param {http.IncomingMessage} req
      */
     setCacheHeaders (_headers, req) {
@@ -642,8 +872,12 @@ class Server {
             return _headers;
         }
         const maxAge = this.getMaxAge(req.url);
-        if (typeof(maxAge) === 'number') {
-            _headers['cache-control'] = 'max-age=' + maxAge;
+        if (typeof maxAge === 'number') {
+            if (maxAge > 0) {
+                _headers['cache-control'] = 'max-age=' + maxAge;
+            } else {
+                _headers['cache-control'] = 'no-cache';
+            }
         }
         return _headers;
     }
@@ -652,14 +886,11 @@ class Server {
      * @param {string} requestUrl
      */
     getMaxAge (requestUrl) {
-        if (this.cache) {
-            for (const pattern in this.cache) {
-                if (minimatch.minimatch(requestUrl, pattern)) {
-                    return this.cache[pattern];
-                }
+        for (const pattern in this.cache) {
+            if (minimatch.minimatch(requestUrl, pattern)) {
+                return this.cache[pattern];
             }
         }
-        return false;
     }
 }
 
