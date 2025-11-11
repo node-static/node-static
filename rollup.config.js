@@ -5,7 +5,11 @@
  */
 function getRollupObject ({input} = {}) {
     return {
-        external: ['fs', 'events', 'http', 'path', 'mime', 'minimatch'],
+        external: [
+            'node:fs', 'node:events', 'node:http', 'node:path',
+            'is-hidden-file', 'node:zlib', 'node:stream/promises',
+            'mime', 'minimatch'
+        ],
         input,
         output: {
             format: 'cjs',

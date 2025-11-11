@@ -1,6 +1,6 @@
 {
   "name": "@node-static/node-static",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "simple, compliant file streaming module for node",
   "author": "Alexis Sellier <alexis@cloudhead.io>",
   "contributors": [

@@ -1,5 +1,9 @@
 # CHANGES for `@node-static/node-static`
 
+## 0.8.1
+
+- fix: guard to avoid resending headers
+
 ## 0.8.0
 
 ### User-facing

@@ -1,14 +1,12 @@
 'use strict';
 
-var fs$1 = require('node:fs');
+var fs = require('node:fs');
 var events = require('node:events');
 var http = require('node:http');
-var path$1 = require('node:path');
+var path = require('node:path');
 var isHiddenFile = require('is-hidden-file');
 var mime = require('mime');
 var minimatch = require('minimatch');
-var fs = require('fs');
-var path = require('path');
 var node_zlib = require('node:zlib');
 var promises = require('node:stream/promises');
 
@@ -48,6 +46,7 @@ function mstat (dir, files, callback) {
                     return total + stat.size;
                 }, 0),
                 mtime: stats.reduce((latest, stat) => {
+                    /* c8 ignore next -- Suppressing error for CI */
                     return latest > stat.mtime ? latest : stat.mtime;
                 }, new Date(-864e13)),
                 ino: stats.reduce((total, stat) => {
@@ -64,8 +63,8 @@ function mstat (dir, files, callback) {
  */
 async function gzip (input, output) {
     const gzip = node_zlib.createGzip();
-    const source = fs$1.createReadStream(input);
-    const destination = fs$1.createWriteStream(output);
+    const source = fs.createReadStream(input);
+    const destination = fs.createWriteStream(output);
     return await promises.pipeline(source, gzip, destination);
 }
 
@@ -87,7 +86,7 @@ async function gzip (input, output) {
 
 const pkg = JSON.parse(
     // @ts-expect-error Works fine
-    fs$1.readFileSync(
+    fs.readFileSync(
         new URL('../package.json', (typeof document === 'undefined' ? require('u' + 'rl').pathToFileURL(__filename).href : (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('node-static.cjs', document.baseURI).href)))
     )
 );
@@ -100,7 +99,7 @@ const version = pkg.version.split('.');
  */
 function tryStat(p, callback) {
     try {
-        fs$1.stat(p, callback);
+        fs.stat(p, callback);
     } catch (e) {
         callback(/** @type {NodeJS.ErrnoException} */ (e));
     }
@@ -147,7 +146,7 @@ class Server extends events.EventEmitter {
         if (root && typeof root === 'object') { options = root; root = null; }
 
         // resolve() doesn't normalize (to lowercase) drive letters on Windows
-        this.root    = path$1.normalize(path$1.resolve(root || '.'));
+        this.root    = path.normalize(path.resolve(root || '.'));
         /** @type {Required<Pick<ServerOptions, 'indexFile'>> & ServerOptions} */
         this.options = {
             indexFile: 'index.html',
@@ -217,7 +216,7 @@ class Server extends events.EventEmitter {
             return;
         }
 
-        const htmlIndex = path$1.join(pathname, this.options.indexFile);
+        const htmlIndex = path.join(pathname, this.options.indexFile);
 
         tryStat(htmlIndex, (e, stat) => {
             if (!e && stat) {
@@ -242,7 +241,8 @@ class Server extends events.EventEmitter {
                 }
             } else {
                 // Stream a directory of files as a single file.
-                fs$1.readFile(path$1.join(pathname, 'index.json'), function (e, contents) {
+                fs.readFile(path.join(pathname, 'index.json'), function (e, contents) {
+                    /* c8 ignore next -- Suppressing error for CI */
                     if (e) { return finish(404, {}) }
                     const index = JSON.parse(contents.toString());
                     streamFiles(index.files);
@@ -316,8 +316,12 @@ class Server extends events.EventEmitter {
                     promise.emit('error', result);
                 }
                 else {
-                    res.writeHead(status, headers);
-                    res.end();
+                    if (!res.headersSent) {
+                        res.writeHead(status, headers);
+                    }
+                    if (!res.writableEnded) {
+                        res.end();
+                    }
                 }
             }
         } else {
@@ -410,7 +414,7 @@ class Server extends events.EventEmitter {
      * @param {string} pathname
      */
     resolve (pathname) {
-        return path$1.resolve(path$1.join(this.root, pathname));
+        return path.resolve(path.join(this.root, pathname));
     }
 
     /**
@@ -796,10 +800,10 @@ class Server extends events.EventEmitter {
             let file = files.shift();
 
             if (file) {
-                file = path$1.resolve(file) === path$1.normalize(file)  ? file : path$1.join(pathname || '.', file);
+                file = path.resolve(file) === path.normalize(file)  ? file : path.join(pathname || '.', file);
 
                 // Create the read stream
-                const readStream = fs$1.createReadStream(file, {
+                const readStream = fs.createReadStream(file, {
                     flags: 'r',
                     mode: 0o666,
                     start: startByte,
