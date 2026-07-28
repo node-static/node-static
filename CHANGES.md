@@ -1,5 +1,13 @@
 # CHANGES for `@node-static/node-static`
 
+## 0.9.0
+
+- **BREAKING CHANGE**: Set `engines` to 22+
+- fix(security): relative path
+- chore: update `minimatch`
+- chore: use `picocolors` in place of `colors`
+- chore: update devDeps.
+
 ## 0.8.1
 
 - fix: guard to avoid resending headers

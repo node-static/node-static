@@ -1,6 +1,6 @@
 {
   "name": "@node-static/node-static",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "simple, compliant file streaming module for node",
   "author": "Alexis Sellier <alexis@cloudhead.io>",
   "contributors": [
@@ -42,11 +42,11 @@
     "test": "npm run gzip && c8 npm run mocha"
   },
   "dependencies": {
-    "colors": "1.4.0",
     "command-line-basics": "^3.0.0",
     "is-hidden-file": "^1.1.2",
     "mime": "^3.0.0",
-    "minimatch": "^9.0.0"
+    "minimatch": "^10.2.6",
+    "picocolors": "^1.1.1"
   },
   "c8": {
     "check-coverage": true,
@@ -77,7 +77,7 @@
     "typescript": "^7.0.2"
   },
   "engines": {
-    "node": "^20.11.0 || >= 22.0.0"
+    "node": "^22.0.0"
   },
   "bugs": {
     "url": "https://github.com/node-static/node-static/issues"

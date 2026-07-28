@@ -1,5 +1,6 @@
 import {join} from 'node:path';
 import {unlink} from 'node:fs/promises';
+import http from 'node:http';
 
 import {assert} from 'chai';
 import fetch from 'node-fetch';
@@ -30,6 +31,34 @@ describe('node-static (CLI)', function () {
              */
             (await spawnPromise(binFile, ['-h']));
         assert.match(stdout, /USAGE: /u);
+    });
+
+    it('uses default port 8080 when -p is omitted', async function () {
+        /** @type {http.Server|undefined} */
+        let blocker;
+
+        try {
+            blocker = await new Promise((resolve, reject) => {
+                const server = http.createServer(() => {});
+                server.once('error', reject);
+                server.listen(8080, '127.0.0.1', () => {
+                    resolve(server);
+                });
+            });
+
+            const {stderr} =
+                /** @type {{ stdout: string; stderr: string; }} */
+                (await spawnPromise(binFile, [fixturePath, '--spa'], 2000));
+            assert.match(
+                stderr,
+                /EADDRINUSE/u,
+                'should attempt to bind default port 8080 when -p is omitted'
+            );
+        } finally {
+            if (blocker) {
+                blocker.close();
+            }
+        }
     });
 
     describe('Get files', function () {
@@ -344,7 +373,7 @@ describe('node-static (CLI)', function () {
             assert.equal(text, 'hello world', 'should respond with hello world');
         });
 
-        it('serving file within directory and spa and default indexFile (and default port)', async function () {
+        it('serving file within directory and spa and default indexFile', async function () {
             const {response /* , stdout */} =
                 /**
                  * @type {{
@@ -353,7 +382,7 @@ describe('node-static (CLI)', function () {
                  * }}
                  */
                 (await spawnConditional(binFile, [
-                    fixturePath, '--spa'
+                    '-p', this.port, fixturePath, '--spa'
                 ], timeout - 9000, {
                     condition: 'serving as a single page app',
                     error (err) {
@@ -361,7 +390,7 @@ describe('node-static (CLI)', function () {
                     },
                     action: (/* err, stdout */) => {
                         return fetch(
-                            `http://localhost:8080/some/other/path`
+                            `http://localhost:${this.port}/some/other/path`
                         );
                     }
                 }));

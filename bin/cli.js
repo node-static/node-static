@@ -5,7 +5,7 @@ import fs from 'fs';
 import tty from 'tty';
 
 import {cliBasics} from 'command-line-basics';
-import colors from 'colors/safe.js';
+import colors from 'picocolors';
 
 import * as statik from './../lib/node-static.js';
 
