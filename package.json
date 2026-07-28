@@ -4,7 +4,7 @@
   "description": "simple, compliant file streaming module for node",
   "author": "Alexis Sellier <alexis@cloudhead.io>",
   "contributors": [
-    "Pablo Cantero <pablo@pablocantero.com>",
+    "Pablo Cantero",
     "Ionică Bizău <bizauionica@gmail.com>",
     "Brett Zamir"
   ],
