@@ -20,7 +20,7 @@ const getTestServer = () => {
 /**
  * @param {Mocha.Context} obj
  * @param {(
- *   serveProm: import('events')<[never]>|void,
+ *   serveProm: import('node:events').EventEmitter|void,
  *   request: http.IncomingMessage,
  *   response: http.ServerResponse<http.IncomingMessage> & {
  *     req: http.IncomingMessage;
@@ -47,7 +47,7 @@ let fileServer = new statik.Server(__dirname + '/../fixtures');
 /**
  * @param {number} port
  * @param {(
- *   serveProm: import('events')<[never]>|void,
+ *   serveProm: import('node:events').EventEmitter|void,
  *   request: http.IncomingMessage,
  *   response: http.ServerResponse<http.IncomingMessage> & {
  *     req: http.IncomingMessage;
@@ -183,6 +183,35 @@ describe('node-static', function () {
             'Custom 404 Stream.',
             'should respond with the streamed content'
         );
+
+        server.close();
+    });
+
+    it('rejects sibling directories that only share the root prefix', async function () {
+        testPort++;
+        const serverObj = new statik.Server(__dirname + '/../fixtures/index-with-json');
+        const server = http.createServer((request, response) => {
+            serverObj.serve(request, response);
+        });
+
+        await new Promise((resolve) => {
+            server.listen(testPort, () => {
+                resolve(undefined);
+            });
+        });
+
+        const response = await new Promise((resolve, reject) => {
+            const request = http.request({
+                host: 'localhost',
+                port: testPort,
+                method: 'GET',
+                path: '/%2e%2e/index-with-json-files/hello.txt',
+            }, resolve);
+            request.on('error', reject);
+            request.end();
+        });
+
+        assert.equal(response.statusCode, 403, 'should reject sibling directories outside the root');
 
         server.close();
     });
@@ -685,8 +714,8 @@ describe('node-static', function () {
         })
         it('requesting with If-Modified-Since', async function () {
             const serverPath = this.getTestServer();
-            let response = await fetch(serverPath + '/index.html');
-            response = await fetch(serverPath + '/index.html', {
+            await fetch(serverPath + '/index.html');
+            const response = await fetch(serverPath + '/index.html', {
                 headers: {'if-modified-since': String(new Date())}
             });
 

@@ -22,12 +22,10 @@ it('responds 500 when transform factory throws', async function () {
 it('falls back to piping original stream when factory returns non-stream', async function () {
     let called = false;
 
-    /** @type {import('../../lib/node-static.js').TransformCallback} */
-    const factory = () => {
+    const factory = /** @type {import('../../lib/node-static.js').TransformCallback} */ (() => {
         called = true;
-        // @ts-expect-error Just testing
-        return null;
-    };
+        return /** @type {unknown} */ (null);
+    });
 
     const server = http.createServer((req, res) => {
         const s = new statik.Server(__dirname + '/../fixtures', { transform: factory });

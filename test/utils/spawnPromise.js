@@ -131,9 +131,9 @@ const spawnPromise = (
 /**
  * @param {string} binFile
  * @param {SpawnOptions|string[]|undefined} opts
- * @param {string[]|number} args
- * @param {number|AwaitInfo} killDelay
- * @param {AwaitInfo} awaitInfo
+ * @param {string[]|number} [args]
+ * @param {number|AwaitInfo} [killDelay]
+ * @param {AwaitInfo} [awaitInfo]
  */
 const spawnConditional = async (
     binFile, opts, args, killDelay, awaitInfo
@@ -148,7 +148,7 @@ const spawnConditional = async (
         condition,
         action: actionCallback,
         error: errBack
-    } = awaitInfo;
+    } = /** @type {AwaitInfo} */ (awaitInfo);
 
     /** @type {boolean} */
     let awaiting;

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "lib": ["es2024"],
+    "types": ["mocha", "mime"],
     "moduleResolution": "nodenext",
     "module": "NodeNext",
     "skipLibCheck": true,
