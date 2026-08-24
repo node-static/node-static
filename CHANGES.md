@@ -1,5 +1,9 @@
 # CHANGES for `@node-static/node-static`
 
+## 0.9.1
+
+- fix: set to work with Node 24+ as well as 22
+
 ## 0.9.0
 
 - **BREAKING CHANGE**: Set `engines` to 22+
