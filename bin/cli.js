@@ -131,15 +131,32 @@ const server = http.createServer(function (request, response) {
 const port = args['port'] || 8080;
 const hostAddress = args['host-address'] || '127.0.0.1';
 
+// Report a failure to bind (e.g. the port is already in use) as a readable
+//   message and a non-zero exit, rather than an uncaught-exception stack trace.
+server.on('error', (err) => {
+    const {code} = /** @type {NodeJS.ErrnoException} */ (err);
+    /* c8 ignore next -- A `listen` error without a `code` is not reachable */
+    const detail = code || err.message;
+    console.error(
+        'node-static: could not listen on ' + hostAddress + ':' + port +
+        ': ' + detail
+    );
+    process.exit(1);
+});
+
+// Announce only once the socket is actually bound, so nothing is printed when
+//   the listen fails.
+server.on('listening', () => {
+    console.log('serving "' + dir + '" at http://' + hostAddress + ':' + port);
+    if (args['spa']) {
+        const indexFile = args['index-file'] || 'index.html';
+        console.log('serving as a single page app (all non-file requests redirect to ' + indexFile +')');
+    }
+});
+
 if (hostAddress === '127.0.0.1') {
     server.listen(port);
 /* c8 ignore next 3 -- Not working with localhost or 0.0.0.0 */
 } else {
     server.listen(port, hostAddress);
-}
-
-console.log('serving "' + dir + '" at http://' + hostAddress + ':' + port);
-if (args['spa']) {
-    const indexFile = args['index-file'] || 'index.html';
-    console.log('serving as a single page app (all non-file requests redirect to ' + indexFile +')');
 }

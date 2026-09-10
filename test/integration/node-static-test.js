@@ -94,6 +94,22 @@ function startErringStaticFileServer (port, errBack) {
     });
 }
 
+/**
+ * As `startErringStaticFileServer`, but the caller ignores the returned
+ * emitter (no `'error'` listener), as the CLI and the README examples do.
+ * @param {number} port
+ */
+function startStaticFileServerIgnoringErrors (port) {
+    return new Promise((resolve, reject) => {
+        const server = http.createServer(function (request, response) {
+            fileServer.serveFile('bad-file.html', 200, {}, request, response);
+        });
+        server.listen(port, () => {
+            resolve(server);
+        });
+    });
+}
+
 let gzipFileServer = new statik.Server(__dirname + '/../fixtures', {
     gzip: true,
 });
@@ -404,6 +420,18 @@ describe('node-static', function () {
             server = srvr;
             fetch(getTestServer() + '/not-found');
         });
+    });
+
+    it('serveFile of a missing file with no error listener responds 404', async function () {
+        testPort++;
+
+        const server = await startStaticFileServerIgnoringErrors(testPort);
+        try {
+            const response = await fetch(getTestServer() + '/not-found');
+            assert.equal(response.status, 404, 'should respond with 404, not crash');
+        } finally {
+            server.close();
+        }
     });
 
     describe('once an http server is listening without a callback', function () {

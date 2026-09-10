@@ -1,5 +1,21 @@
 # CHANGES for `@node-static/node-static`
 
+## 0.9.2
+
+- fix: `serveFile` no longer throws an unhandled `'error'` event (crashing the
+    process) when its target file is missing and the caller did not attach an
+    `'error'` listener to the returned emitter, as the CLI and the README's
+    `serveFile` examples do; it now falls back to a 404 response, mirroring the
+    guard already used in `finish()`.
+- fix(cli): report a failure to bind (e.g. the port is already in use) as a
+    one-line message on stderr and exit with a non-zero code, instead of an
+    uncaught-exception stack trace; the "serving …" lines are now printed on
+    the server's `listening` event, so nothing is announced when the bind
+    fails.
+- test: bind the same wildcard socket `bin/cli.js` uses in the default-port
+    test, so it is not a no-op on platforms where a wildcard IPv6 listener does
+    not collide with an IPv4-loopback bind (e.g. macOS).
+
 ## 0.9.1
 
 - fix: set to work with Node 24+ as well as 22

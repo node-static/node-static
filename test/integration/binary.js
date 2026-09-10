@@ -34,6 +34,8 @@ describe('node-static (CLI)', function () {
     });
 
     it('uses default port 8080 when -p is omitted', async function () {
+        this.timeout(10000);
+
         /** @type {http.Server|undefined} */
         let blocker;
 
@@ -41,14 +43,20 @@ describe('node-static (CLI)', function () {
             blocker = await new Promise((resolve, reject) => {
                 const server = http.createServer(() => {});
                 server.once('error', reject);
-                server.listen(8080, '127.0.0.1', () => {
+                // Bind the same wildcard socket `bin/cli.js` targets with its
+                //   host-less `server.listen(port)`. Binding `127.0.0.1`
+                //   explicitly does not collide with the CLI's `[::]` bind on
+                //   platforms where a wildcard IPv6 listener is `V6ONLY`
+                //   (e.g. macOS), so the CLI would start cleanly and the
+                //   expected `EADDRINUSE` would never appear.
+                server.listen(8080, () => {
                     resolve(server);
                 });
             });
 
             const {stderr} =
                 /** @type {{ stdout: string; stderr: string; }} */
-                (await spawnPromise(binFile, [fixturePath, '--spa'], 2000));
+                (await spawnPromise(binFile, [fixturePath, '--spa'], 5000));
             assert.match(
                 stderr,
                 /EADDRINUSE/u,

@@ -1,6 +1,6 @@
 {
   "name": "@node-static/node-static",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "simple, compliant file streaming module for node",
   "author": "Alexis Sellier <alexis@cloudhead.io>",
   "contributors": [
@@ -32,7 +32,7 @@
     "url": "git+ssh://git@github.com/node-static/node-static.git"
   },
   "scripts": {
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run tsc && npm run build",
     "tsc": "tsc",
     "gzip": "node test/gzip.js",
     "build": "rollup -c && tsc -p tsconfig-prod.json",
