@@ -1,5 +1,9 @@
 # CHANGES for `@node-static/node-static`
 
+## 0.10.0
+
+- fix: bundle @types/mime
+
 ## 0.9.2
 
 - fix: `serveFile` no longer throws an unhandled `'error'` event (crashing the

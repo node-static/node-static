@@ -1,6 +1,6 @@
 {
   "name": "@node-static/node-static",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "simple, compliant file streaming module for node",
   "author": "Alexis Sellier <alexis@cloudhead.io>",
   "contributors": [
@@ -42,6 +42,7 @@
     "test": "npm run gzip && c8 npm run mocha"
   },
   "dependencies": {
+    "@types/mime": "^3.0.4",
     "command-line-basics": "^3.0.0",
     "is-hidden-file": "^1.1.2",
     "mime": "^3.0.0",
@@ -62,7 +63,6 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/chai": "^5.2.3",
-    "@types/mime": "^3.0.4",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.1.2",
     "@types/node-fetch": "^2.6.13",
